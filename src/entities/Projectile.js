@@ -1,4 +1,5 @@
 import { dist } from "../utils/MathUtils.js";
+import { RARITY_COLORS } from "../art/Palette.js";
 
 let _pid = 1;
 
@@ -52,33 +53,7 @@ export class Projectile {
     if (this.life <= 0) this.dead = true;
   }
 
-  render(ctx) {
-    if (this.dead) return;
-    const alpha = Math.min(1, this.life / Math.min(0.3, this.maxLife));
-    ctx.globalAlpha = alpha;
-
-    // Trail glow
-    if (this.trail) {
-      ctx.fillStyle = this.color;
-      ctx.globalAlpha = alpha * 0.35;
-      ctx.beginPath();
-      ctx.arc(this.x - this.vx * 0.02, this.y - this.vy * 0.02, this.radius * 1.6, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = alpha;
-    }
-
-    ctx.fillStyle = this.crit ? "#ffeb3b" : this.color;
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-    ctx.fill();
-
-    if (this.crit) {
-      ctx.strokeStyle = "#fff";
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-  }
+  // Drawn as a directional pixel bolt by EntityRenderer.renderProjectiles.
 }
 
 export class Pickup {
@@ -93,11 +68,7 @@ export class Pickup {
     this.magnet = false;
     this.dead = false;
     this.bob = Math.random() * Math.PI * 2;
-    this.color =
-      kind === "xp" ? "#69f0ae" :
-      kind === "gold" ? "#ffd54f" :
-      kind === "heart" ? "#ef5350" :
-      data.item?.rarityColor || "#fff";
+    this.color = data.item?.rarityColor || RARITY_COLORS.common;
   }
 
   update(dt, player, pickupRange) {
@@ -134,31 +105,7 @@ export class Pickup {
     return false;
   }
 
-  render(ctx) {
-    if (this.dead) return;
-    const bobY = Math.sin(this.bob) * 3;
-    if (this.kind === "item") {
-      ctx.fillStyle = this.color;
-      ctx.globalAlpha = 0.35;
-      ctx.beginPath();
-      ctx.arc(this.x, this.y + bobY, this.radius + 6, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.font = "16px serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(this.data.item?.icon || "?", this.x, this.y + bobY);
-    } else {
-      ctx.fillStyle = this.color;
-      ctx.beginPath();
-      ctx.arc(this.x, this.y + bobY, this.radius, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "rgba(255,255,255,0.5)";
-      ctx.beginPath();
-      ctx.arc(this.x - 2, this.y + bobY - 2, this.radius * 0.35, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
+  // Drawn with its item icon and rarity beacon by EntityRenderer.
 }
 
 export class Chest {
@@ -171,41 +118,14 @@ export class Chest {
     this.isMimic = type === "mimic";
     this.bob = Math.random() * 10;
     this.colors = {
-      normal: "#a1887f",
-      rare: "#42a5f5",
-      legendary: "#ff9800",
-      mimic: "#a1887f",
+      normal: RARITY_COLORS.common,
+      rare: RARITY_COLORS.rare,
+      legendary: RARITY_COLORS.legendary,
+      mimic: RARITY_COLORS.common,
     };
   }
 
-  render(ctx) {
-    const bobY = Math.sin(Date.now() / 400 + this.bob) * 2;
-    const c = this.colors[this.type] || this.colors.normal;
-    if (!this.opened) {
-      ctx.fillStyle = c;
-      ctx.fillRect(this.x - 14, this.y - 10 + bobY, 28, 20);
-      ctx.fillStyle = "#5d4037";
-      ctx.fillRect(this.x - 14, this.y - 10 + bobY, 28, 6);
-      ctx.fillStyle = this.type === "legendary" ? "#ffd54f" : "#ffd54f";
-      ctx.beginPath();
-      ctx.arc(this.x, this.y + bobY, 3, 0, Math.PI * 2);
-      ctx.fill();
-      if (this.type === "legendary" || this.type === "rare") {
-        ctx.strokeStyle = c;
-        ctx.globalAlpha = 0.4;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y + bobY, 22 + Math.sin(Date.now() / 200) * 3, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-      }
-    } else {
-      ctx.fillStyle = "#5d4037";
-      ctx.fillRect(this.x - 14, this.y - 4, 28, 14);
-      ctx.fillStyle = c;
-      ctx.fillRect(this.x - 14, this.y - 16, 28, 10);
-    }
-  }
+  // Drawn from CHEST_SPRITES by EntityRenderer, with a rarity beacon.
 }
 
 export class WorldInteractable {
@@ -218,49 +138,5 @@ export class WorldInteractable {
     this.used = false;
   }
 
-  render(ctx) {
-    const pulse = 0.7 + Math.sin(Date.now() / 300) * 0.3;
-    const colors = {
-      shrine: this.data.color || "#ab47bc",
-      shop: "#42a5f5",
-      portal: "#ffd54f",
-      event: "#26c6da",
-      heal_fountain: "#66bb6a",
-    };
-    const c = colors[this.kind] || "#fff";
-
-    if (this.kind === "portal") {
-      ctx.strokeStyle = c;
-      ctx.fillStyle = `rgba(255, 213, 79, ${0.15 * pulse})`;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, 28, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      ctx.font = "bold 12px Cinzel, serif";
-      ctx.fillStyle = c;
-      ctx.textAlign = "center";
-      ctx.fillText("DESCEND", this.x, this.y + 4);
-      return;
-    }
-
-    ctx.fillStyle = this.used ? "#444" : c;
-    ctx.globalAlpha = this.used ? 0.4 : pulse;
-    ctx.beginPath();
-    ctx.moveTo(this.x, this.y - 20);
-    ctx.lineTo(this.x + 16, this.y + 12);
-    ctx.lineTo(this.x - 16, this.y + 12);
-    ctx.closePath();
-    ctx.fill();
-    ctx.globalAlpha = 1;
-
-    ctx.fillStyle = "#fff";
-    ctx.font = "10px sans-serif";
-    ctx.textAlign = "center";
-    const label = this.kind === "shrine" ? (this.data.name || "Shrine") :
-      this.kind === "shop" ? "Shop" :
-      this.kind === "heal_fountain" ? "Fountain" :
-      this.data.name || "Event";
-    ctx.fillText(label, this.x, this.y + 28);
-  }
+  // Drawn from INTERACT_SPRITES by EntityRenderer, with its own light source.
 }

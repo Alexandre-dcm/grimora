@@ -17,11 +17,19 @@ import { statusSystem } from "../systems/StatusEffectSystem.js";
 import { chestLoot, shopInventory, generateLootDrop } from "../data/lootTables.js";
 import { ROOM_TYPES } from "../data/world.js";
 import { UIManager } from "../ui/UIManager.js";
+import { getBiomeArt, PALETTE } from "../art/Palette.js";
+import { DungeonRenderer } from "../art/render/DungeonRenderer.js";
+import { EntityRenderer } from "../art/render/EntityRenderer.js";
+import { Lighting } from "../art/render/Lighting.js";
+import { TitleScene } from "../art/render/TitleScene.js";
+import { FloatingText, Atmosphere } from "../art/render/Vfx.js";
+import { crisp } from "../art/render/Draw.js";
+import { triggerAttack } from "../art/render/Anim.js";
 
 export class Game {
   constructor(canvas, uiRoot) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext("2d");
+    this.ctx = crisp(canvas.getContext("2d", { alpha: false }));
     this.time = new Time();
     this.camera = new Camera();
     this.input = new InputManager(canvas);
@@ -29,6 +37,18 @@ export class Game {
     this.progression = new ProgressionSystem();
     this.combat = new CombatSystem(this);
     this.ui = new UIManager(uiRoot, this);
+
+    // Presentation layer (ART_BIBLE). None of these hold gameplay state.
+    this.dungeonArt = new DungeonRenderer();
+    this.fx = new EntityRenderer(this);
+    this.lighting = new Lighting();
+    this.floats = new FloatingText();
+    this.atmosphere = new Atmosphere();
+    this.title = new TitleScene();
+    this.biomeArt = getBiomeArt(1);
+    this._layers = [];
+    this._lights = [];
+    this._view = { x: 0, y: 0, w: 0, h: 0 };
 
     this.state = "hub"; // hub | playing | paused | levelup | dead
     this.selectedClass = "warrior";
@@ -70,8 +90,10 @@ export class Game {
     this.canvas.width = Math.floor(window.innerWidth * dpr);
     this.canvas.height = Math.floor(window.innerHeight * dpr);
     this.camera.setViewSize(this.canvas.width, this.canvas.height);
-    // Keep world scale readable
-    this.camera.zoom = dpr * (window.innerWidth < 800 ? 0.85 : 1);
+    // Integer zoom only: a fractional scale would smear the pixel grid
+    // (ART_BIBLE §2). ~640 world px across frames a room plus its walls.
+    this.camera.zoom = Math.max(1, Math.min(6, Math.round(this.canvas.width / 640)));
+    crisp(this.ctx);
   }
 
   start() {
@@ -135,6 +157,12 @@ export class Game {
     // Portal appears when floor cleared — added dynamically
     this.currentRoom = getRoomAt(this.player.x, this.player.y, this.dungeon);
     if (this.currentRoom) this.currentRoom.visited = true;
+
+    // Bake the visual dungeon: tiles, walls, seeded decoration, static lights
+    this.biomeArt = getBiomeArt(this.floor);
+    this.dungeonArt.build(this.dungeon);
+    this.atmosphere.setKind(this.biomeArt.atmosphere);
+    this.floats.clear();
   }
 
   enterRoom(room) {
@@ -293,6 +321,9 @@ export class Game {
       resolveCollisions(e, this.dungeon);
       if (!action) continue;
 
+      // Presentation only: let the attack clip play for instantaneous attacks
+      if (action.attack || action.projectile || action.projectiles) triggerAttack(e);
+
       if (action.attack && circleOverlap(e.x, e.y, e.attackRange, p.x, p.y, p.radius)) {
         const dealt = p.takeDamage(action.attack.damage);
         if (dealt > 0) {
@@ -341,7 +372,9 @@ export class Game {
       }
       if (action.aoe) {
         const a = action.aoe;
-        this.particles.burst(a.x, a.y, 20, "#ff5252", 180);
+        this.particles.burst(a.x, a.y, 22, PALETTE.l, 180, 0.5, "fire");
+        this.fx.shockwave(a.x, a.y, a.radius, PALETTE.o);
+        this.fx.impact(a.x, a.y, PALETTE.p, true, 12);
         this.camera.shake(12);
         if (dist(p.x, p.y, a.x, a.y) < a.radius + p.radius) {
           const dealt = p.takeDamage(a.damage);
@@ -379,8 +412,10 @@ export class Game {
     // Clear rooms
     this._checkRoomClear();
 
-    // Particles & camera
+    // Particles, VFX & camera
     this.particles.update(dt);
+    this.fx.update(dt);
+    this.floats.update(dt);
     this.camera.follow(p.x, p.y, dt);
     this.camera.update(dt);
 
@@ -636,7 +671,12 @@ export class Game {
     const p = this.player;
     p.registerKill();
     audio.play("death");
-    this.particles.burst(enemy.x, enemy.y, enemy.isElite ? 28 : 14, enemy.color, 160, 0.45);
+    // Death puff in the creature's own colour, so kills read at a glance (§12)
+    this.particles.death(enemy.x, enemy.y, enemy.color, enemy.isBoss || enemy.isElite);
+    this.particles.blood(enemy.x, enemy.y, Math.PI * 1.5, enemy.isBoss ? 16 : 6);
+    if (enemy.isBoss || enemy.isElite) {
+      this.fx.shockwave(enemy.x, enemy.y, enemy.isBoss ? 160 : 80, enemy.color);
+    }
     this.camera.shake(enemy.isBoss ? 16 : enemy.isElite ? 8 : 3);
     this.time.freeze(enemy.isBoss ? 0.12 : 0.04);
 
@@ -725,18 +765,18 @@ export class Game {
     this.ui.announce(text);
   }
 
-  spawnDamageNumber(wx, wy, amount, crit) {
-    const s = this.camera.worldToScreen(wx, wy);
-    const cssX = (s.x / this.canvas.width) * this.canvas.clientWidth;
-    const cssY = (s.y / this.canvas.height) * this.canvas.clientHeight;
-    this.ui.spawnFloat(cssX, cssY, crit ? `${amount}!` : `${amount}`, crit ? "crit" : "");
+  /** Combat numbers are drawn in the world with the bitmap font (§12). */
+  spawnDamageNumber(wx, wy, amount, crit, element = "none") {
+    this.floats.damage(wx, wy, amount, { crit, element });
   }
 
   spawnFloatingText(wx, wy, text, cls) {
-    const s = this.camera.worldToScreen(wx, wy);
-    const cssX = (s.x / this.canvas.width) * this.canvas.clientWidth;
-    const cssY = (s.y / this.canvas.height) * this.canvas.clientHeight;
-    this.ui.spawnFloat(cssX, cssY, text, cls);
+    const color =
+      cls === "gold" ? PALETTE.t :
+      cls === "crit" ? PALETTE.p :
+      cls === "heal" ? PALETTE.z :
+      PALETTE["9"];
+    this.floats.spawn(wx, wy, text, { color, scale: 2 });
   }
 
   clampEntity(e) {
@@ -797,146 +837,65 @@ export class Game {
     ].join("\n");
   }
 
+  /**
+   * Frame layout (ART_BIBLE §11 draw order):
+   *   baked dungeon -> depth-sorted props & actors -> projectiles -> particles
+   *   -> impacts -> combat text -> lightmap -> atmosphere.
+   * Every pass runs with smoothing disabled and integer destinations.
+   */
   render() {
     const ctx = this.ctx;
     const w = this.canvas.width;
     const h = this.canvas.height;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, w, h);
+    const t = this.time.elapsed ?? performance.now() / 1000;
 
-    // Background atmosphere
-    const biome = this.dungeon?.biome;
-    ctx.fillStyle = biome?.floorColor || "#07060c";
-    ctx.fillRect(0, 0, w, h);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    crisp(ctx);
 
     if (this.state === "hub" || this.state === "dead" || !this.dungeon) {
-      this._renderTitleBg(ctx, w, h);
+      this.title.render(ctx, w, h, performance.now() / 1000);
       return;
     }
 
-    this.camera.apply(ctx);
-    this._renderDungeon(ctx);
-    for (const c of this.chests) c.render(ctx);
-    for (const it of this.interactables) it.render(ctx);
-    for (const pk of this.pickups) pk.render(ctx);
-    for (const e of this.enemies) e.render(ctx);
-    for (const pr of this.projectiles) pr.render(ctx);
-    if (this.player) this.player.render(ctx);
-    this.particles.render(ctx);
-
-    // Soft vignette in screen space
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    const g = ctx.createRadialGradient(w / 2, h / 2, h * 0.2, w / 2, h / 2, h * 0.75);
-    g.addColorStop(0, "rgba(0,0,0,0)");
-    g.addColorStop(1, biome?.fog || "rgba(0,0,0,0.45)");
-    ctx.fillStyle = g;
+    ctx.fillStyle = this.biomeArt.ambient;
     ctx.fillRect(0, 0, w, h);
+
+    const view = this._view;
+    const z = this.camera.zoom;
+    view.x = this.camera.x - 32;
+    view.y = this.camera.y - 32;
+    view.w = w / z + 64;
+    view.h = h / z + 64;
+
+    this.camera.apply(ctx);
+    crisp(ctx);
+
+    this.dungeonArt.renderStatic(ctx, view);
+
+    // Depth pass: environment props and actors interleaved by ground line
+    const layers = this._layers;
+    layers.length = 0;
+    this.dungeonArt.collectDynamic(view, t, layers);
+    this.fx.collect(view, this.time.delta, layers);
+    layers.sort(sortByDepth);
+    for (const l of layers) l.draw(ctx);
+
+    this.fx.renderProjectiles(ctx, view);
+    this.particles.render(ctx);
+    this.fx.renderImpacts(ctx);
+    this.floats.render(ctx);
+
+    // Lighting and atmosphere in screen space
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const lights = this._lights;
+    lights.length = 0;
+    this.dungeonArt.collectLights(view, t, lights);
+    this.fx.collectLights(view, lights);
+    this.lighting.render(ctx, { x: this.camera.x, y: this.camera.y, zoom: z }, lights, this.biomeArt, w, h);
+    this.atmosphere.render(ctx, w, h, t);
   }
+}
 
-  _renderTitleBg(ctx, w, h) {
-    const t = performance.now() / 1000;
-    for (let i = 0; i < 40; i++) {
-      const x = ((i * 97 + t * 20) % w);
-      const y = ((i * 53 + Math.sin(t + i) * 30) % h);
-      ctx.fillStyle = `rgba(201,162,39,${0.05 + (i % 5) * 0.02})`;
-      ctx.beginPath();
-      ctx.arc(x, y, 2, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  _renderDungeon(ctx) {
-    const biome = this.dungeon.biome;
-
-    // Corridors
-    ctx.fillStyle = biome.floorColor;
-    for (const c of this.dungeon.corridors) {
-      for (const s of c.segments) {
-        ctx.fillStyle = this._lighten(biome.floorColor, 12);
-        ctx.fillRect(s.x, s.y, s.w, s.h);
-      }
-    }
-
-    for (const room of this.dungeon.rooms) {
-      // Floor
-      ctx.fillStyle = this._lighten(biome.floorColor, room.visited ? 18 : 8);
-      ctx.fillRect(room.x, room.y, room.w, room.h);
-
-      // Grid subtle
-      ctx.strokeStyle = "rgba(255,255,255,0.03)";
-      ctx.lineWidth = 1;
-      for (let x = room.x; x < room.x + room.w; x += 32) {
-        ctx.beginPath();
-        ctx.moveTo(x, room.y);
-        ctx.lineTo(x, room.y + room.h);
-        ctx.stroke();
-      }
-
-      // Walls
-      ctx.fillStyle = biome.wallColor;
-      for (const wall of room.walls) {
-        ctx.fillRect(wall.x, wall.y, wall.w, wall.h);
-      }
-
-      // Door gaps — carve corridor intersections
-      for (const c of this.dungeon.corridors) {
-        if (c.from !== room.id && c.to !== room.id) continue;
-        for (const s of c.segments) {
-          ctx.fillStyle = this._lighten(biome.floorColor, 18);
-          // Punch door openings
-          this._carveDoor(ctx, room, s, biome);
-        }
-      }
-
-      // Obstacles
-      ctx.fillStyle = this._lighten(biome.wallColor, -20);
-      for (const o of room.obstacles) {
-        ctx.fillRect(o.x, o.y, o.w, o.h);
-        ctx.strokeStyle = biome.accent;
-        ctx.globalAlpha = 0.3;
-        ctx.strokeRect(o.x, o.y, o.w, o.h);
-        ctx.globalAlpha = 1;
-      }
-
-      // Room type indicator (minimap-ish corner)
-      if (room.visited) {
-        const rt = ROOM_TYPES[room.type];
-        ctx.fillStyle = rt?.color || "#fff";
-        ctx.globalAlpha = 0.5;
-        ctx.beginPath();
-        ctx.arc(room.x + 28, room.y + 28, 5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalAlpha = 1;
-      }
-    }
-  }
-
-  _carveDoor(ctx, room, seg, biome) {
-    // If corridor overlaps wall edge, draw floor over wall
-    const overlaps = (a, b) =>
-      a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
-    for (const wall of room.walls) {
-      if (!overlaps(wall, seg)) continue;
-      const ix = Math.max(wall.x, seg.x);
-      const iy = Math.max(wall.y, seg.y);
-      const iw = Math.min(wall.x + wall.w, seg.x + seg.w) - ix;
-      const ih = Math.min(wall.y + wall.h, seg.y + seg.h) - iy;
-      if (iw > 0 && ih > 0) {
-        ctx.fillStyle = this._lighten(biome.floorColor, 18);
-        ctx.fillRect(ix - 2, iy - 2, iw + 4, ih + 4);
-      }
-    }
-  }
-
-  _lighten(hex, amount) {
-    const c = hex.replace("#", "");
-    const num = parseInt(c.length === 3 ? c.split("").map((x) => x + x).join("") : c, 16);
-    let r = (num >> 16) + amount;
-    let g = ((num >> 8) & 0xff) + amount;
-    let b = (num & 0xff) + amount;
-    r = Math.max(0, Math.min(255, r));
-    g = Math.max(0, Math.min(255, g));
-    b = Math.max(0, Math.min(255, b));
-    return `rgb(${r},${g},${b})`;
-  }
+function sortByDepth(a, b) {
+  return a.sort - b.sort;
 }

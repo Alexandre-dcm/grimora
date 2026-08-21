@@ -275,41 +275,7 @@ export class Enemy {
     return action;
   }
 
-  render(ctx) {
-    if (this.dead) return;
-    const flash = this.hurtFlash > 0;
-
-    // Elite glow
-    if (this.elite) {
-      ctx.strokeStyle = this.elite.color || "#ff9800";
-      ctx.lineWidth = 3;
-      ctx.globalAlpha = 0.5 + Math.sin(Date.now() / 150) * 0.25;
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, this.radius + 5, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
-
-    ctx.fillStyle = "rgba(0,0,0,0.3)";
-    ctx.beginPath();
-    ctx.ellipse(this.x, this.y + this.radius * 0.6, this.radius * 0.8, this.radius * 0.3, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = flash ? "#ffffff" : this.color;
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-    ctx.fill();
-
-    // HP bar for hurt / elites
-    if (this.hp < this.maxHp || this.elite) {
-      const w = this.radius * 2.2;
-      const ratio = this.hp / this.maxHp;
-      ctx.fillStyle = "rgba(0,0,0,0.6)";
-      ctx.fillRect(this.x - w / 2, this.y - this.radius - 10, w, 4);
-      ctx.fillStyle = this.elite ? "#ff9800" : "#e53935";
-      ctx.fillRect(this.x - w / 2, this.y - this.radius - 10, w * ratio, 4);
-    }
-  }
+  // Presentation lives in src/art/render/EntityRenderer.js.
 }
 
 export class Boss extends Enemy {
@@ -453,48 +419,5 @@ export class Boss extends Enemy {
     return null;
   }
 
-  render(ctx) {
-    if (this.dead) return;
-    if (this.telegraph > 0 && this.telegraphType) {
-      ctx.strokeStyle = "rgba(255,80,80,0.7)";
-      ctx.fillStyle = "rgba(255,40,40,0.15)";
-      ctx.lineWidth = 2;
-      if (this.telegraphType.type === "nova") {
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.telegraphType.radius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-      } else if (this.telegraphType.tx != null) {
-        ctx.beginPath();
-        ctx.arc(this.telegraphType.tx, this.telegraphType.ty, 45, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-      }
-    }
-
-    // Boss body
-    const flash = this.hurtFlash > 0;
-    ctx.fillStyle = "rgba(0,0,0,0.4)";
-    ctx.beginPath();
-    ctx.ellipse(this.x, this.y + this.radius * 0.5, this.radius, this.radius * 0.35, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = flash ? "#fff" : this.color;
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.strokeStyle = "#ffd54f";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.radius + 3, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Phase eyes
-    ctx.fillStyle = this.phase >= 3 ? "#ff1744" : "#fff";
-    ctx.beginPath();
-    ctx.arc(this.x - 8, this.y - 4, 4, 0, Math.PI * 2);
-    ctx.arc(this.x + 8, this.y - 4, 4, 0, Math.PI * 2);
-    ctx.fill();
-  }
+  // Presentation (phase remaps, telegraphs, aura) lives in EntityRenderer.
 }

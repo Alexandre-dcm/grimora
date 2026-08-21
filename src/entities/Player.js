@@ -490,61 +490,8 @@ export class Player {
     return true;
   }
 
-  render(ctx) {
-    const pulsing = this.iFrames > 0 && Math.floor(this.iFrames * 20) % 2 === 0;
-    if (pulsing) ctx.globalAlpha = 0.4;
-
-    // Shadow
-    ctx.fillStyle = "rgba(0,0,0,0.35)";
-    ctx.beginPath();
-    ctx.ellipse(this.x, this.y + this.radius * 0.7, this.radius * 0.9, this.radius * 0.35, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Body
-    const col = this.hurtFlash > 0 ? "#fff" : this.classDef.color;
-    ctx.fillStyle = col;
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Inner
-    ctx.fillStyle = "rgba(255,255,255,0.2)";
-    ctx.beginPath();
-    ctx.arc(this.x - 3, this.y - 3, this.radius * 0.45, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Facing eye
-    ctx.fillStyle = "#fff";
-    const ex = this.x + Math.cos(this.aimAngle) * 6;
-    const ey = this.y + Math.sin(this.aimAngle) * 6;
-    ctx.beginPath();
-    ctx.arc(ex, ey, 3, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Weapon swing arc
-    if (this.attackAnim > 0) {
-      const w = this.getWeapon();
-      if (w && (w.stats.attackStyle || "").startsWith("melee")) {
-        const range = (w.stats.range || 50) * (this.base.rangeMult + this.bonuses.rangeMult);
-        ctx.strokeStyle = `rgba(255,220,120,${this.attackAnim * 3})`;
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, range, this.aimAngle - 0.7, this.aimAngle + 0.7);
-        ctx.stroke();
-      }
-    }
-
-    // Shield
-    if (this.shield > 0) {
-      ctx.strokeStyle = "rgba(100,180,255,0.6)";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, this.radius + 4, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-
-    ctx.globalAlpha = 1;
-  }
+  // Presentation lives in src/art/render/EntityRenderer.js — the player is
+  // drawn from its state (aimAngle, attackAnim, dashTimer, hurtFlash, iFrames).
 }
 
 export { EQUIP_SLOTS, WEAPON_DEFS };

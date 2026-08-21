@@ -1,6 +1,7 @@
 import { angle, dist, normalize, circleOverlap } from "../utils/MathUtils.js";
 import { Projectile } from "../entities/Projectile.js";
 import { ELEMENTS } from "../data/items.js";
+import { ParticleSystem } from "./ParticleSystem.js";
 import { statusSystem } from "./StatusEffectSystem.js";
 import { rng } from "../utils/Random.js";
 import { audio } from "../core/AudioManager.js";
@@ -94,7 +95,8 @@ export class CombatSystem {
 
     // Slam AOE
     if (weapon.stats.attackStyle === "melee_slam") {
-      this.game.particles.ring(player.x, player.y, "#ffcc80", range * 0.6);
+      this.game.particles.ring(player.x, player.y, "#ffcc80", range * 0.6, "smoke");
+      this.game.fx?.shockwave(player.x, player.y, range * 0.9, "#ffcc80");
     }
   }
 
@@ -142,8 +144,19 @@ export class CombatSystem {
 
     player.damageDealt += dealt;
     audio.play(opts.crit ? "crit" : "hit");
-    this.game.spawnDamageNumber(enemy.x, enemy.y - enemy.radius, dealt, opts.crit);
-    this.game.particles.burst(enemy.x, enemy.y, opts.crit ? 12 : 6, opts.crit ? "#ffeb3b" : "#fff", 140, 0.35);
+    const element = opts.element || "none";
+    this.game.spawnDamageNumber(enemy.x, enemy.y - enemy.radius, dealt, opts.crit, element);
+
+    // Impact VFX: spray away from the blow, mark the contact point, add blood
+    const kb = opts.knockback;
+    const hitAngle = kb ? Math.atan2(kb.y, kb.x) : angle(player.x, player.y, enemy.x, enemy.y);
+    const hx = enemy.x - Math.cos(hitAngle) * enemy.radius * 0.6;
+    const hy = enemy.y - Math.sin(hitAngle) * enemy.radius * 0.6;
+    this.game.particles.hit(hx, hy, hitAngle, opts.crit ? 14 : 7, element, opts.crit);
+    this.game.fx?.impact(hx, hy, ELEMENTS[element]?.color, opts.crit, opts.crit ? 9 : 6);
+    if (element === "none" || element === "physical" || element === "blood") {
+      this.game.particles.blood(hx, hy, hitAngle, opts.crit ? 8 : 4);
+    }
 
     // Life steal
     const ls = player.getLifeSteal();
@@ -151,7 +164,6 @@ export class CombatSystem {
 
     // Status
     const weapon = opts.weapon;
-    const element = opts.element || "none";
     const elem = ELEMENTS[element];
     const chance = (weapon?.stats.statusChance || 0) + player.bonuses.statusChance;
     if (elem?.status && rng.chance(chance || 0.2)) {
@@ -169,7 +181,10 @@ export class CombatSystem {
 
   _explode(x, y, damage, radius, color, player) {
     audio.play("explode");
-    this.game.particles.burst(x, y, 24, color, 200, 0.5);
+    this.game.particles.burst(x, y, 24, color, 200, 0.5, "fire");
+    this.game.particles.motes(x, y, 8, "smoke");
+    this.game.fx?.shockwave(x, y, radius, color);
+    this.game.fx?.impact(x, y, color, true, 12);
     this.game.camera.shake(10);
     for (const e of this.game.enemies) {
       if (e.dead) continue;
@@ -217,7 +232,8 @@ export class CombatSystem {
                 this._damageEnemy(o, p.damage * 0.5, { player, crit: false, element: p.element, weapon: p.fromWeapon });
               }
             }
-            g.particles.burst(p.x, p.y, 10, p.color, 100, 0.3);
+            g.particles.burst(p.x, p.y, 10, p.color, 100, 0.3, ParticleSystem.rampFor(p.element));
+            g.fx?.shockwave(p.x, p.y, p.splash, p.color);
           }
 
           // Chain lightning
@@ -239,12 +255,13 @@ export class CombatSystem {
               if (!next) break;
               chained.add(next.id);
               this._damageEnemy(next, p.damage * 0.7, { player, crit: false, element: "lightning", weapon: p.fromWeapon });
+              g.fx?.arc(from.x, from.y, next.x, next.y);
               g.particles.emit(from.x, from.y, 6, () => ({
                 vx: (next.x - from.x) * 2,
                 vy: (next.y - from.y) * 2,
                 life: 0.15,
                 size: 2,
-                color: "#ffeb3b",
+                ramp: "lightning",
               }));
               from = next;
             }
@@ -268,9 +285,11 @@ export class CombatSystem {
           const dealt = player.takeDamage(p.damage);
           if (dealt > 0) {
             audio.play("hurt");
-            g.spawnDamageNumber(player.x, player.y - 20, dealt, false);
+            g.spawnDamageNumber(player.x, player.y - 20, dealt, false, p.element);
             g.camera.shake(7);
-            g.particles.burst(player.x, player.y, 8, "#ef5350", 100);
+            g.particles.hit(p.x, p.y, p.angle, 9, p.element, false);
+            g.particles.blood(player.x, player.y, p.angle, 5);
+            g.fx?.impact(p.x, p.y, p.color, false, 7);
             if (player.bonuses.thorns > 0) {
               // thorns not applied to projectile source easily — skip
             }

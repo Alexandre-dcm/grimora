@@ -83,7 +83,7 @@ export class StatusEffectSystem {
     if (!entity.statuses) entity.statuses = [];
 
     const existing = entity.statuses.find((s) => s.id === statusId);
-    const dur = duration ?? def.duration;
+    const dur = def.duration;
 
     if (existing) {
       if (def.stacking === "stack") {
